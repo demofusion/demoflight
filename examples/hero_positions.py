@@ -15,18 +15,17 @@ DEMOFLIGHT_URL = os.environ.get("DEMOFLIGHT_URL", "grpc://localhost:50051")
 QUERY = """
 SELECT 
     tick,
-    tick / 64.0 AS game_seconds,
     entity_index,
     delta_type,
-    m_iTeamNum AS team,
-    m_iHealth AS health,
-    m_iMaxHealth AS max_health,
-    -- World position from cell coordinates (128-unit resolution)
-    (CBodyComponent__m_cellX * 128) - 16384 AS position_x,
-    (CBodyComponent__m_cellY * 128) - 16384 AS position_y,
-    (CBodyComponent__m_cellZ * 128) - 16384 AS position_z
+    m_iTeamNum,
+    m_iHealth,
+    m_iMaxHealth,
+    CBodyComponent__m_cellX,
+    CBodyComponent__m_cellY,
+    CBodyComponent__m_cellZ
 FROM CCitadelPlayerPawn
 WHERE delta_type IN ('create', 'update')
+LIMIT 500
 """
 
 
@@ -40,17 +39,32 @@ async def main(broadcast_url: str):
             row_count = 0
             async for batch in query:
                 df = batch.to_pandas()
+
+                # Calculate world position
+                df["position_x"] = (df["CBodyComponent__m_cellX"] * 128) - 16384
+                df["position_y"] = (df["CBodyComponent__m_cellY"] * 128) - 16384
+                df["position_z"] = (df["CBodyComponent__m_cellZ"] * 128) - 16384
+                df["game_seconds"] = df["tick"] / 64.0
+
                 row_count += len(df)
 
-                # Sample output - first few rows of each batch
+                # Sample output
                 if row_count <= 100:
-                    print(df.to_string(index=False))
+                    print(
+                        df[
+                            [
+                                "tick",
+                                "entity_index",
+                                "m_iTeamNum",
+                                "m_iHealth",
+                                "position_x",
+                                "position_y",
+                            ]
+                        ].to_string(index=False)
+                    )
                     print("---")
 
-                # Stop after collecting enough data
-                if row_count >= 1000:
-                    print(f"\nCollected {row_count} position updates")
-                    break
+            print(f"\nCollected {row_count} position updates")
 
 
 if __name__ == "__main__":

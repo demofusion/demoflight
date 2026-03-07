@@ -62,25 +62,27 @@ impl From<DemoflightError> for Status {
     fn from(e: DemoflightError) -> Self {
         use DemoflightError::*;
 
+        let msg = e.to_string();
+
         match e {
-            SessionNotFound(_) | QueryNotFound(_) => Status::not_found(e.to_string()),
+            SessionNotFound(_) | QueryNotFound(_) => Status::not_found(msg),
 
             InvalidSourceUrl(_) | SqlValidation(_) | ProtoDecode(_) | InvalidTicket => {
-                Status::invalid_argument(e.to_string())
+                Status::invalid_argument(msg)
             }
 
             SessionLocked | InvalidState { .. } | QueryAlreadyConsumed(_) => {
-                Status::failed_precondition(e.to_string())
+                Status::failed_precondition(msg)
             }
 
-            MaxSessionsReached | MaxQueriesReached => Status::resource_exhausted(e.to_string()),
+            MaxSessionsReached | MaxQueriesReached => Status::resource_exhausted(msg),
 
-            JwtValidation(_) => Status::unauthenticated(e.to_string()),
+            JwtValidation(_) => Status::unauthenticated(msg),
 
-            GotvConnection(_) => Status::unavailable(e.to_string()),
+            GotvConnection(_) => Status::unavailable(msg),
 
             SchemaDiscovery(_) | QueryExecution(_) | Demofusion(_) | DataFusion(_)
-            | Internal(_) => Status::internal(e.to_string()),
+            | Internal(_) => Status::internal(msg),
         }
     }
 }
