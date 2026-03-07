@@ -79,7 +79,10 @@ impl DemoflightService {
                 interval.tick().await;
                 let expired_ids = session_manager.cleanup_expired();
                 if !expired_ids.is_empty() {
-                    tracing::info!(expired_count = expired_ids.len(), "Cleaned up expired sessions");
+                    tracing::info!(
+                        expired_count = expired_ids.len(),
+                        "Cleaned up expired sessions"
+                    );
                 }
             }
         })
@@ -97,9 +100,9 @@ impl DemoflightService {
             .to_str()
             .map_err(|_| Status::unauthenticated("Invalid authorization header"))?;
 
-        let token = auth_header
-            .strip_prefix("Bearer ")
-            .ok_or_else(|| Status::unauthenticated("Invalid authorization format, expected 'Bearer <token>'"))?;
+        let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+            Status::unauthenticated("Invalid authorization format, expected 'Bearer <token>'")
+        })?;
 
         let claims = self.jwt_handler.decode(token).map_err(Status::from)?;
 
@@ -149,7 +152,8 @@ impl StreamLifecycleTracker {
 
 impl Drop for StreamLifecycleTracker {
     fn drop(&mut self) {
-        self.session.on_stream_complete(&self.query_id, self.rows_streamed, self.had_error);
+        self.session
+            .on_stream_complete(&self.query_id, self.rows_streamed, self.had_error);
     }
 }
 
@@ -161,9 +165,8 @@ fn query_handle_to_flight_stream(
     let schema = handle.schema().clone();
     let tracker = StreamLifecycleTracker::new(session, query_id);
 
-    let batch_stream = futures::stream::unfold(
-        (handle, tracker),
-        |(mut h, mut tracker)| async move {
+    let batch_stream =
+        futures::stream::unfold((handle, tracker), |(mut h, mut tracker)| async move {
             use futures::StreamExt;
             match h.next().await {
                 Some(Ok(batch)) => {
@@ -176,12 +179,10 @@ fn query_handle_to_flight_stream(
                 }
                 None => None,
             }
-        },
-    );
+        });
 
-    let record_batch_stream = batch_stream.map(|r| {
-        r.map_err(|e| FlightError::ExternalError(Box::new(e)))
-    });
+    let record_batch_stream =
+        batch_stream.map(|r| r.map_err(|e| FlightError::ExternalError(Box::new(e))));
 
     let flight_data_stream = FlightDataEncoderBuilder::new()
         .with_schema(schema)
@@ -351,9 +352,9 @@ impl FlightService for DemoflightService {
                 Ok(Response::new(Box::pin(stream)))
             }
 
-            "demoflight.get_session_status" => {
-                Err(Status::unimplemented("get_session_status not yet implemented"))
-            }
+            "demoflight.get_session_status" => Err(Status::unimplemented(
+                "get_session_status not yet implemented",
+            )),
 
             _ => Err(Status::unimplemented(format!(
                 "Unknown action type: {}",
@@ -419,8 +420,9 @@ impl DemoflightService {
 
                 let schema = batch.schema();
                 let batch_stream = futures::stream::once(async move { Ok(batch) });
-                let record_batch_stream =
-                    batch_stream.map(|r| r.map_err(|e: datafusion::arrow::error::ArrowError| FlightError::Arrow(e)));
+                let record_batch_stream = batch_stream.map(|r| {
+                    r.map_err(|e: datafusion::arrow::error::ArrowError| FlightError::Arrow(e))
+                });
 
                 let flight_data_stream = FlightDataEncoderBuilder::new()
                     .with_schema(schema)
@@ -441,14 +443,15 @@ impl DemoflightService {
 
                 let builder = build_get_tables_response(&cmd, &session).map_err(Status::from)?;
 
-                let batch = builder
-                    .build()
-                    .map_err(|e| Status::internal(format!("Failed to build GetTables response: {e}")))?;
+                let batch = builder.build().map_err(|e| {
+                    Status::internal(format!("Failed to build GetTables response: {e}"))
+                })?;
 
                 let schema = batch.schema();
                 let batch_stream = futures::stream::once(async move { Ok(batch) });
-                let record_batch_stream =
-                    batch_stream.map(|r| r.map_err(|e: datafusion::arrow::error::ArrowError| FlightError::Arrow(e)));
+                let record_batch_stream = batch_stream.map(|r| {
+                    r.map_err(|e: datafusion::arrow::error::ArrowError| FlightError::Arrow(e))
+                });
 
                 let flight_data_stream = FlightDataEncoderBuilder::new()
                     .with_schema(schema)

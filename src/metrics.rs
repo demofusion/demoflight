@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use metrics::{counter, gauge, describe_counter, describe_gauge};
+use metrics::{counter, describe_counter, describe_gauge, gauge};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
 use crate::session::SessionManager;
@@ -149,57 +149,70 @@ pub fn record_grpc_error(method: &str, status: &str) {
         "demoflight_grpc_errors_total",
         "method" => method.to_string(),
         "status" => status.to_string()
-    ).increment(1);
+    )
+    .increment(1);
 }
 
-pub fn update_streaming_stats(session_id: &str, rows_produced: u64, rows_sent: u64, rows_buffered: u64) {
+pub fn update_streaming_stats(
+    session_id: &str,
+    rows_produced: u64,
+    rows_sent: u64,
+    rows_buffered: u64,
+) {
     gauge!(
         "demoflight_streaming_rows_produced",
         "session_id" => session_id.to_string()
-    ).set(rows_produced as f64);
+    )
+    .set(rows_produced as f64);
     gauge!(
         "demoflight_streaming_rows_sent",
         "session_id" => session_id.to_string()
-    ).set(rows_sent as f64);
+    )
+    .set(rows_sent as f64);
     gauge!(
         "demoflight_streaming_rows_buffered",
         "session_id" => session_id.to_string()
-    ).set(rows_buffered as f64);
+    )
+    .set(rows_buffered as f64);
 }
 
 pub fn record_gate_blocked(session_id: &str) {
     counter!(
         "demoflight_streaming_gate_blocked_total",
         "session_id" => session_id.to_string()
-    ).increment(1);
+    )
+    .increment(1);
 }
 
-pub fn spawn_metrics_collector(session_manager: Arc<SessionManager>) -> tokio::task::JoinHandle<()> {
+pub fn spawn_metrics_collector(
+    session_manager: Arc<SessionManager>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
             interval.tick().await;
             set_active_sessions(session_manager.session_count() as u64);
-            
+
             // Collect streaming stats from all active sessions
             session_manager.for_each_session(|session| {
                 if let Some(stats) = session.streaming_stats() {
                     let snapshot = stats.snapshot();
                     let session_id = session.id.to_string();
-                    
+
                     update_streaming_stats(
                         &session_id,
                         snapshot.rows_produced,
                         snapshot.rows_sent,
                         snapshot.rows_buffered(),
                     );
-                    
+
                     // Gate blocked is a counter - we need to track the delta
                     // For now, just report the total (Prometheus will handle rate calculation)
                     gauge!(
                         "demoflight_streaming_gate_blocked_total",
                         "session_id" => session_id
-                    ).set(snapshot.gate_blocked_count as f64);
+                    )
+                    .set(snapshot.gate_blocked_count as f64);
                 }
             });
         }

@@ -56,7 +56,13 @@ async fn test_list_actions() {
     let (addr, handle) = start_test_server().await;
     let mut client = create_client(addr).await;
 
-    let actions: Vec<_> = client.list_actions().await.unwrap().try_collect().await.unwrap();
+    let actions: Vec<_> = client
+        .list_actions()
+        .await
+        .unwrap()
+        .try_collect()
+        .await
+        .unwrap();
 
     assert!(actions.len() >= 3);
 
@@ -98,9 +104,7 @@ async fn test_handshake_not_implemented() {
     let (addr, handle) = start_test_server().await;
     let mut client = create_client(addr).await;
 
-    let result = client
-        .handshake("user")
-        .await;
+    let result = client.handshake("user").await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();

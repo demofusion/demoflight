@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use arrow_flight::sql::{Any, Command, CommandGetSqlInfo, CommandGetTables, CommandStatementQuery, ProstMessageExt};
+use arrow_flight::sql::{
+    Any, Command, CommandGetSqlInfo, CommandGetTables, CommandStatementQuery, ProstMessageExt,
+};
 use arrow_flight::{FlightDescriptor, FlightEndpoint, FlightInfo, Ticket};
 use prost::Message;
 use tonic::Status;
@@ -22,7 +24,9 @@ pub async fn route_command(
     ctx: RouteContext<'_>,
 ) -> Result<FlightInfo, Status> {
     if descriptor.cmd.is_empty() {
-        return Err(Status::invalid_argument("Empty command in FlightDescriptor"));
+        return Err(Status::invalid_argument(
+            "Empty command in FlightDescriptor",
+        ));
     }
 
     let any = Any::decode(&descriptor.cmd[..])
@@ -32,19 +36,13 @@ pub async fn route_command(
         .map_err(|e| Status::invalid_argument(format!("Unknown command type: {}", e)))?;
 
     match command {
-        Command::CommandStatementQuery(cmd) => {
-            handle_statement_query(cmd, descriptor, &ctx).await
-        }
+        Command::CommandStatementQuery(cmd) => handle_statement_query(cmd, descriptor, &ctx).await,
         Command::CommandGetTables(cmd) => {
             let session = require_session(&ctx)?;
             handle_get_tables(cmd, descriptor, &session)
         }
-        Command::CommandGetSqlInfo(cmd) => {
-            handle_get_sql_info(cmd, descriptor)
-        }
-        Command::CommandGetCatalogs(_) => {
-            Err(Status::unimplemented("GetCatalogs not implemented"))
-        }
+        Command::CommandGetSqlInfo(cmd) => handle_get_sql_info(cmd, descriptor),
+        Command::CommandGetCatalogs(_) => Err(Status::unimplemented("GetCatalogs not implemented")),
         Command::CommandGetDbSchemas(_) => {
             Err(Status::unimplemented("GetDbSchemas not implemented"))
         }
@@ -83,10 +81,7 @@ async fn handle_statement_query(
         return Err(Status::invalid_argument("Query cannot be empty"));
     }
 
-    let query_id = session
-        .add_query(&cmd.query)
-        .await
-        .map_err(Status::from)?;
+    let query_id = session.add_query(&cmd.query).await.map_err(Status::from)?;
 
     tracing::Span::current().record("query_id", query_id.to_string());
 
@@ -111,7 +106,11 @@ async fn handle_statement_query(
     })
 }
 
-fn handle_get_tables(cmd: CommandGetTables, descriptor: FlightDescriptor, _session: &StreamingSession) -> Result<FlightInfo, Status> {
+fn handle_get_tables(
+    cmd: CommandGetTables,
+    descriptor: FlightDescriptor,
+    _session: &StreamingSession,
+) -> Result<FlightInfo, Status> {
     let ticket = Ticket {
         ticket: cmd.as_any().encode_to_vec().into(),
     };
@@ -131,7 +130,10 @@ fn handle_get_tables(cmd: CommandGetTables, descriptor: FlightDescriptor, _sessi
     })
 }
 
-fn handle_get_sql_info(cmd: CommandGetSqlInfo, descriptor: FlightDescriptor) -> Result<FlightInfo, Status> {
+fn handle_get_sql_info(
+    cmd: CommandGetSqlInfo,
+    descriptor: FlightDescriptor,
+) -> Result<FlightInfo, Status> {
     let ticket = Ticket {
         ticket: cmd.as_any().encode_to_vec().into(),
     };
@@ -182,7 +184,9 @@ mod tests {
 
         #[test]
         fn decodes_command_get_sql_info() {
-            let cmd = CommandGetSqlInfo { info: vec![1, 2, 3] };
+            let cmd = CommandGetSqlInfo {
+                info: vec![1, 2, 3],
+            };
             let encoded = encode_as_any(&cmd);
 
             let any = Any::decode(&encoded[..]).expect("Any decode should succeed");
@@ -257,7 +261,9 @@ mod tests {
 
         #[test]
         fn get_sql_info_ticket_roundtrips() {
-            let original = CommandGetSqlInfo { info: vec![1, 2, 3] };
+            let original = CommandGetSqlInfo {
+                info: vec![1, 2, 3],
+            };
             let descriptor = FlightDescriptor::new_cmd(original.as_any().encode_to_vec());
             let flight_info = handle_get_sql_info(original.clone(), descriptor).unwrap();
 
@@ -294,7 +300,7 @@ mod tests {
             let garbage = vec![0xFF, 0xFE, 0xFD, 0xFC];
 
             let result = Any::decode(&garbage[..]);
-            
+
             // Garbage may or may not decode as Any, but should not be a valid command
             if let Ok(any) = result {
                 let command_result = Command::try_from(any);

@@ -25,9 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let service = DemoflightService::new(config);
     let _cleanup_handle = service.spawn_cleanup_task();
-    let _metrics_collector = demoflight::metrics::spawn_metrics_collector(
-        Arc::clone(service.session_manager())
-    );
+    let _metrics_collector =
+        demoflight::metrics::spawn_metrics_collector(Arc::clone(service.session_manager()));
 
     let flight_svc = arrow_flight::flight_service_server::FlightServiceServer::new(service);
 
@@ -86,25 +85,25 @@ async fn spawn_metrics_server(
     metrics_handle: Arc<MetricsHandle>,
 ) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
-    
+
     loop {
         let (stream, _) = listener.accept().await?;
         let metrics = Arc::clone(&metrics_handle);
-        
+
         tokio::spawn(async move {
             let mut buf = [0u8; 1024];
-            if let Ok(_) = stream.readable().await {
+            if stream.readable().await.is_ok() {
                 let _ = stream.try_read(&mut buf);
             }
-            
+
             let body = metrics.render();
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
                 body
             );
-            
-            if let Ok(_) = stream.writable().await {
+
+            if stream.writable().await.is_ok() {
                 let _ = stream.try_write(response.as_bytes());
             }
         });

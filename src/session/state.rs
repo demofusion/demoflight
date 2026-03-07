@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
-use datafusion::arrow::datatypes::Schema;
 use dashmap::DashMap;
+use datafusion::arrow::datatypes::Schema;
 use demofusion::gotv::{GotvError, QueryHandle, SpectateSession, StreamingStats};
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, OnceCell};
@@ -34,19 +34,19 @@ pub struct StreamingSession {
     parser_handle: OnceCell<JoinHandle<std::result::Result<(), GotvError>>>,
     streaming_started_at: OnceCell<Instant>,
     streaming_stats: OnceCell<Arc<StreamingStats>>,
-    
+
     /// Tracks when queries were last registered OR when a handle was last claimed.
     last_activity_at: SyncMutex<Instant>,
-    
+
     /// Number of query handles that have been claimed via take_query_handle.
     claimed_queries: AtomicUsize,
-    
+
     /// Currently streaming (DoGet in progress)
     active_streams: AtomicUsize,
-    
+
     /// Finished streaming
     completed_streams: AtomicUsize,
-    
+
     /// Prevents struct literal construction outside this module.
     _private: (),
 }
@@ -117,7 +117,7 @@ impl StreamingSession {
     pub fn streaming_started_at(&self) -> Option<Instant> {
         self.streaming_started_at.get().copied()
     }
-    
+
     pub fn streaming_stats(&self) -> Option<&Arc<StreamingStats>> {
         self.streaming_stats.get()
     }
@@ -207,7 +207,7 @@ impl StreamingSession {
 
         self.query_handles.insert(query_id, handle);
         *self.last_activity_at.lock() = Instant::now();
-        
+
         tracing::debug!(
             session_id = %self.id,
             query_id = %query_id,
@@ -266,7 +266,8 @@ impl StreamingSession {
         tracing::debug!(query_id = %query_id, "take_query_handle called");
         self.ensure_streaming().await?;
 
-        let result = self.query_handles
+        let result = self
+            .query_handles
             .remove(query_id)
             .map(|(_, handle)| {
                 // Track that this query has been claimed
@@ -282,14 +283,14 @@ impl StreamingSession {
                     DemoflightError::QueryNotFound(query_id.to_string())
                 }
             });
-        
+
         tracing::debug!(
-            query_id = %query_id, 
+            query_id = %query_id,
             found = result.is_ok(),
             remaining_handles = self.query_handles.len(),
             "take_query_handle result"
         );
-        
+
         result
     }
 
@@ -306,7 +307,7 @@ impl StreamingSession {
         let active = self.active_streams.load(Ordering::Relaxed);
         let claimed = self.claimed_queries.load(Ordering::Relaxed);
 
-        // Session is complete - all claimed queries finished streaming, 
+        // Session is complete - all claimed queries finished streaming,
         // no unclaimed handles remain
         // Mark as immediately expired for cleanup
         if claimed > 0 && completed == claimed && active == 0 && !self.has_unclaimed_handles() {
@@ -370,7 +371,7 @@ impl StreamingSession {
             _private: (),
         }
     }
-    
+
     /// Simulate the passage of time by backdating created_at and last_activity_at
     pub fn with_age(mut self, age: std::time::Duration) -> Self {
         let past = Instant::now() - age;
@@ -378,23 +379,23 @@ impl StreamingSession {
         *self.last_activity_at.lock() = past;
         self
     }
-    
+
     /// Simulate queries that were registered but not yet claimed (DoGet not called).
-    /// 
+    ///
     /// NOTE: Currently a no-op because we can't create real QueryHandles without
     /// demofusion infrastructure. For expiration tests, use with_active_streams()
     /// or with_completed_streams() which set the claimed_queries counter.
     pub fn with_unclaimed_queries(self, _count: usize) -> Self {
         self
     }
-    
+
     /// Simulate queries that have been claimed and are actively streaming
     pub fn with_active_streams(self, count: usize) -> Self {
         self.claimed_queries.store(count, Ordering::Relaxed);
         self.active_streams.store(count, Ordering::Relaxed);
         self
     }
-    
+
     /// Simulate queries that have completed streaming
     pub fn with_completed_streams(self, count: usize) -> Self {
         self.claimed_queries.store(count, Ordering::Relaxed);
@@ -425,13 +426,16 @@ mod tests {
 
         let session = StreamingSession::new_for_test(schemas);
         let names = session.table_names();
-        assert_eq!(names, vec![Arc::from("Apple"), Arc::from("Mango"), Arc::from("Zebra")]);
+        assert_eq!(
+            names,
+            vec![Arc::from("Apple"), Arc::from("Mango"), Arc::from("Zebra")]
+        );
     }
 
     #[test]
     fn test_is_expired_by_absolute_timeout() {
-        let session = StreamingSession::new_for_test(vec![])
-            .with_age(std::time::Duration::from_secs(7200));
+        let session =
+            StreamingSession::new_for_test(vec![]).with_age(std::time::Duration::from_secs(7200));
 
         assert!(session.is_expired(3600, 300));
     }
@@ -446,8 +450,7 @@ mod tests {
     #[test]
     fn test_expired_when_all_streams_completed() {
         // Session where all claimed queries have completed streaming
-        let session = StreamingSession::new_for_test(vec![])
-            .with_completed_streams(2);
+        let session = StreamingSession::new_for_test(vec![]).with_completed_streams(2);
 
         assert!(session.is_expired(3600, 300));
     }
@@ -455,17 +458,16 @@ mod tests {
     #[test]
     fn test_not_expired_with_active_streams() {
         // Session with active streams should not be expired
-        let session = StreamingSession::new_for_test(vec![])
-            .with_active_streams(1);
+        let session = StreamingSession::new_for_test(vec![]).with_active_streams(1);
 
         assert!(!session.is_expired(3600, 300));
     }
-    
+
     #[test]
     fn test_total_query_count_derived_from_state() {
         let session = StreamingSession::new_for_test(vec![]);
         assert_eq!(session.total_query_count(), 0);
-        
+
         // Simulate claiming 3 queries
         session.claimed_queries.store(3, Ordering::Relaxed);
         assert_eq!(session.total_query_count(), 3);

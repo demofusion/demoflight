@@ -73,6 +73,7 @@ fn default_allowed_patterns() -> Vec<String> {
 }
 
 impl DemoflightConfig {
+    #[allow(clippy::result_large_err)]
     pub fn load() -> Result<Self, figment::Error> {
         Figment::new()
             .merge(Toml::file("demoflight.toml"))
