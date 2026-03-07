@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Multi-arch Containerfile for demoflight using cargo-chef for dependency caching
-# Supports: linux/amd64, linux/arm64 (native builds on matching arch)
+# Supports: linux/amd64, linux/arm64 (native builds via GitHub Actions matrix)
 
 # ==============================================================================
 # Chef stage - base image with cargo-chef installed
