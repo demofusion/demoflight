@@ -5,7 +5,7 @@
 # ==============================================================================
 # Chef stage - base image with cargo-chef installed
 # ==============================================================================
-FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.93-bookworm AS chef
+FROM docker.io/lukemathwalker/cargo-chef:0.1.77-rust-1.93-bookworm AS chef
 WORKDIR /build
 
 # ==============================================================================
@@ -44,11 +44,6 @@ RUN cargo build --release --target "$RUST_TARGET" && \
 # Runtime stage - distroless static image (nonroot)
 # ==============================================================================
 FROM gcr.io/distroless/static-debian12:nonroot
-
-LABEL org.opencontainers.image.title="demoflight"
-LABEL org.opencontainers.image.description="Arrow Flight server for streaming SQL queries over GOTV broadcasts"
-LABEL org.opencontainers.image.source="https://github.com/demofusion/demoflight"
-LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=builder /demoflight /usr/local/bin/demoflight
 

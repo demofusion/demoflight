@@ -49,6 +49,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.title=demoflight
+            org.opencontainers.image.description=Arrow Flight server for streaming SQL queries over GOTV broadcasts
+            org.opencontainers.image.licenses=Apache-2.0
 
       - name: Build and push by digest
         id: build
