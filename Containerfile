@@ -1,14 +1,24 @@
 # syntax=docker/dockerfile:1
-# Multi-arch Containerfile for demoflight
+# Multi-arch Containerfile for demoflight using cargo-chef for dependency caching
 # Supports: linux/amd64, linux/arm64 (native builds on matching arch)
-# Static musl binary, distroless runtime
 
 # ==============================================================================
-# Builder stage - compile static Rust binary with musl
+# Chef stage - base image with cargo-chef installed
 # ==============================================================================
-FROM docker.io/library/rust:1.93-bookworm AS builder
-
+FROM docker.io/lukemathwalker/cargo-chef:latest-rust-1.93-bookworm AS chef
 WORKDIR /build
+
+# ==============================================================================
+# Planner stage - analyze project and create recipe
+# ==============================================================================
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ==============================================================================
+# Builder stage - cook dependencies then build application
+# ==============================================================================
+FROM chef AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,22 +34,17 @@ RUN case "$(uname -m)" in \
         *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;; \
     esac
 
-# Copy manifests first for better caching
-COPY Cargo.toml Cargo.lock ./
+# Cook dependencies (this layer is cached if Cargo.toml/Cargo.lock unchanged)
+COPY --from=planner /build/recipe.json recipe.json
+RUN case "$(uname -m)" in \
+        x86_64)  TARGET="x86_64-unknown-linux-musl" ;; \
+        aarch64) TARGET="aarch64-unknown-linux-musl" ;; \
+    esac && \
+    cargo chef cook --release --target "$TARGET" --recipe-path recipe.json
 
-# Copy build script and proto files (needed for code generation)
-COPY build.rs ./
-COPY proto ./proto
-
-# Copy source code
-COPY src ./src
-
-# Build static release binary with cache mounts for Cargo registry and target dir
-ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/build/target,sharing=locked \
-    case "$(uname -m)" in \
+# Copy source and build application
+COPY . .
+RUN case "$(uname -m)" in \
         x86_64)  TARGET="x86_64-unknown-linux-musl" ;; \
         aarch64) TARGET="aarch64-unknown-linux-musl" ;; \
     esac && \
@@ -52,7 +57,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # ==============================================================================
 FROM gcr.io/distroless/static-debian12:nonroot
 
-# OCI labels
 LABEL org.opencontainers.image.title="demoflight"
 LABEL org.opencontainers.image.description="Arrow Flight server for streaming SQL queries over GOTV broadcasts"
 LABEL org.opencontainers.image.source="https://github.com/demofusion/demoflight"
@@ -60,9 +64,7 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=builder /demoflight /usr/local/bin/demoflight
 
-# gRPC Flight port
 EXPOSE 50051
-# Prometheus metrics port
 EXPOSE 9090
 
 ENTRYPOINT ["/usr/local/bin/demoflight"]
