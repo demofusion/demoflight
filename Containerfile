@@ -24,12 +24,22 @@ RUN case "$(uname -m)" in \
         *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;; \
     esac
 
-# Copy source code
-COPY . .
+# Copy manifests first for better caching
+COPY Cargo.toml Cargo.lock ./
 
-# Build static release binary
+# Copy build script and proto files (needed for code generation)
+COPY build.rs ./
+COPY proto ./proto
+
+# Copy source code
+COPY src ./src
+
+# Build static release binary with cache mounts for Cargo registry and target dir
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-RUN case "$(uname -m)" in \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/build/target,sharing=locked \
+    case "$(uname -m)" in \
         x86_64)  TARGET="x86_64-unknown-linux-musl" ;; \
         aarch64) TARGET="aarch64-unknown-linux-musl" ;; \
     esac && \
