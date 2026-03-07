@@ -1,0 +1,76 @@
+[package]
+name = "demoflight"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Arrow Flight server for streaming SQL queries over GOTV broadcasts via demofusion"
+
+[[bin]]
+name = "demoflight"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Arrow Flight (must match demofusion's arrow version from DataFusion 52)
+arrow-flight = { version = "57", features = ["flight-sql-experimental"] }
+tonic = { version = "0.14", features = ["gzip"] }
+prost = "0.14"
+
+# DataFusion (for arrow re-exports - version unified with demofusion)
+datafusion = "52"
+
+# demofusion
+demofusion = { git = "https://github.com/demofusion/demofusion.git", branch = "main", features = ["gotv"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tokio-stream = "0.1"
+futures = "0.3"
+async-trait = "0.1"
+
+# Tower middleware
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace"] }
+http = "1"
+
+# JWT
+jsonwebtoken = "9"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytes = "1"
+
+# Utilities
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+parking_lot = "0.12"
+regex = "1"
+sha2 = "0.10"
+hex = "0.4"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
+# Config
+figment = { version = "0.10", features = ["env", "toml"] }
+
+# HTTP client for GOTV (via demofusion's gotv feature)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip"] }
+dashmap = "6.1.0"
+
+[build-dependencies]
+prost-build = "0.14"
+tonic-prost-build = "0.14"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"

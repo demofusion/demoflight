@@ -1,0 +1,19 @@
+/target
+.cargo/
+*.swp
+*.swo
+.DS_Store
+
+# Generated proto code (committed for convenience, but can be regenerated)
+# src/proto/
+
+# Local config with secrets
+demoflight.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/

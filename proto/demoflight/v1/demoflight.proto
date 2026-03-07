@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package demoflight.v1;
+
+// ============================================================================
+// Source Registration (via DoAction "register_source")
+// ============================================================================
+
+message RegisterSourceRequest {
+  string source_url = 1;
+  map<string, string> options = 2;
+}
+
+message RegisterSourceResponse {
+  string session_token = 1;
+  repeated TableInfo tables = 2;
+}
+
+message TableInfo {
+  string name = 1;
+  bytes arrow_schema = 2;
+}

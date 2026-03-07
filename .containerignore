@@ -1,0 +1,29 @@
+# Build artifacts
+target/
+
+# Python virtual environment
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+
+# CI/CD
+.woodpecker.yaml
+
+# Documentation
+*.md
+!README.md
+
+# Test scripts (not needed in container)
+scripts/
+
+# Local config
+*.local
+.env
+.env.*
