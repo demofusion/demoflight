@@ -20,36 +20,24 @@ RUN cargo chef prepare --recipe-path recipe.json
 # ==============================================================================
 FROM chef AS builder
 
-# Install build dependencies
+ARG RUST_TARGET
+
+# Install build dependencies and add musl target
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \
     libprotobuf-dev \
     musl-tools \
-    && rm -rf /var/lib/apt/lists/*
-
-# Add musl target for current architecture
-RUN case "$(uname -m)" in \
-        x86_64)  rustup target add x86_64-unknown-linux-musl ;; \
-        aarch64) rustup target add aarch64-unknown-linux-musl ;; \
-        *) echo "Unsupported architecture: $(uname -m)" && exit 1 ;; \
-    esac
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add "$RUST_TARGET"
 
 # Cook dependencies (this layer is cached if Cargo.toml/Cargo.lock unchanged)
 COPY --from=planner /build/recipe.json recipe.json
-RUN case "$(uname -m)" in \
-        x86_64)  TARGET="x86_64-unknown-linux-musl" ;; \
-        aarch64) TARGET="aarch64-unknown-linux-musl" ;; \
-    esac && \
-    cargo chef cook --release --target "$TARGET" --recipe-path recipe.json
+RUN cargo chef cook --release --target "$RUST_TARGET" --recipe-path recipe.json
 
 # Copy source and build application
 COPY . .
-RUN case "$(uname -m)" in \
-        x86_64)  TARGET="x86_64-unknown-linux-musl" ;; \
-        aarch64) TARGET="aarch64-unknown-linux-musl" ;; \
-    esac && \
-    cargo build --release --target "$TARGET" && \
-    cp "target/$TARGET/release/demoflight" /demoflight && \
+RUN cargo build --release --target "$RUST_TARGET" && \
+    cp "target/$RUST_TARGET/release/demoflight" /demoflight && \
     strip /demoflight
 
 # ==============================================================================
