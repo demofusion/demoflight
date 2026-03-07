@@ -3,10 +3,17 @@
 # Supports: linux/amd64, linux/arm64 (native builds via GitHub Actions matrix)
 
 # ==============================================================================
-# Chef stage - base image with cargo-chef installed
+# Chef stage - base image with cargo-chef and build deps installed
 # ==============================================================================
-FROM docker.io/lukemathwalker/cargo-chef:0.1.77-rust-1.93-bookworm AS chef
+FROM docker.io/lukemathwalker/cargo-chef:0.1.77-rust-1.93-slim-bookworm AS chef
 WORKDIR /build
+
+# Install build dependencies early so this layer is always cached
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    protobuf-compiler \
+    libprotobuf-dev \
+    musl-tools \
+    && rm -rf /var/lib/apt/lists/*
 
 # ==============================================================================
 # Planner stage - analyze project and create recipe
@@ -22,13 +29,8 @@ FROM chef AS builder
 
 ARG RUST_TARGET
 
-# Install build dependencies and add musl target
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    protobuf-compiler \
-    libprotobuf-dev \
-    musl-tools \
-    && rm -rf /var/lib/apt/lists/* \
-    && rustup target add "$RUST_TARGET"
+# Add musl target for static builds
+RUN rustup target add "$RUST_TARGET"
 
 # Cook dependencies (this layer is cached if Cargo.toml/Cargo.lock unchanged)
 COPY --from=planner /build/recipe.json recipe.json
