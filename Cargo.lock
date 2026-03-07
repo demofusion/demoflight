@@ -1497,7 +1497,6 @@ dependencies = [
 [[package]]
 name = "demofusion"
 version = "0.1.0"
-source = "git+https://git.mttwong.net/matt/demofusion.git?branch=main#01fd31348d7f26672f04dcfb4af2302de27d6a05"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -4325,7 +4324,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 [[package]]
 name = "valveprotos"
 version = "0.0.0"
-source = "git+https://git.mttwong.net/deadlock-tools/valveprotos-rs.git?rev=22d515f#22d515fff9334b2eeda15dee6db6daddeaf4d86e"
+source = "git+https://github.com/demofusion/valveprotos-rs.git?rev=22d515f#22d515fff9334b2eeda15dee6db6daddeaf4d86e"
 dependencies = [
  "heck",
  "prost",

@@ -148,46 +148,57 @@ async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
                 q2 = await session.add_query(sql2)
                 print(f"    Query 2 registered: {sql2[:50]}...")
 
-                print("\n[4] Streaming results from Query 1...")
-                total_rows_q1 = 0
-                batch_count_q1 = 0
-                schema_q1 = None
+                print("\n[4] Streaming results CONCURRENTLY...")
 
-                async for batch in q1:
-                    if schema_q1 is None:
-                        schema_q1 = batch.schema
-                        print(f"    Schema: {schema_q1}")
+                # Results dict to collect from concurrent tasks
+                results = {
+                    "q1": {"batches": 0, "rows": 0, "schema": None},
+                    "q2": {"batches": 0, "rows": 0},
+                }
 
-                    batch_count_q1 += 1
-                    total_rows_q1 += batch.num_rows
+                async def drain_q1():
+                    async for batch in q1:
+                        if results["q1"]["schema"] is None:
+                            results["q1"]["schema"] = batch.schema
+                            print(f"    Q1 Schema: {batch.schema}")
 
-                    if batch_count_q1 <= 3:
-                        print(f"    Batch {batch_count_q1}: {batch.num_rows} rows")
+                        results["q1"]["batches"] += 1
+                        results["q1"]["rows"] += batch.num_rows
 
-                    if batch_count_q1 >= 10:
-                        print(f"    ... (stopping after 10 batches)")
-                        break
+                        if results["q1"]["batches"] <= 3:
+                            print(
+                                f"    Q1 Batch {results['q1']['batches']}: {batch.num_rows} rows"
+                            )
 
-                print(f"    Total Q1: {batch_count_q1} batches, {total_rows_q1} rows")
+                        if results["q1"]["batches"] >= 10:
+                            print(f"    Q1 ... (stopping after 10 batches)")
+                            break
 
-                print("\n[5] Streaming results from Query 2...")
-                total_rows_q2 = 0
-                batch_count_q2 = 0
+                async def drain_q2():
+                    async for batch in q2:
+                        results["q2"]["batches"] += 1
+                        results["q2"]["rows"] += batch.num_rows
 
-                async for batch in q2:
-                    batch_count_q2 += 1
-                    total_rows_q2 += batch.num_rows
+                        if results["q2"]["batches"] <= 2:
+                            print(
+                                f"    Q2 Batch {results['q2']['batches']}: {batch.num_rows} rows"
+                            )
 
-                    if batch_count_q2 <= 2:
-                        print(f"    Batch {batch_count_q2}: {batch.num_rows} rows")
+                        if results["q2"]["batches"] >= 5:
+                            print(f"    Q2 ... (stopping after 5 batches)")
+                            break
 
-                    if batch_count_q2 >= 5:
-                        print(f"    ... (stopping after 5 batches)")
-                        break
+                # MUST consume concurrently to avoid deadlock
+                await asyncio.gather(drain_q1(), drain_q2())
 
-                print(f"    Total Q2: {batch_count_q2} batches, {total_rows_q2} rows")
+                print(
+                    f"\n    Total Q1: {results['q1']['batches']} batches, {results['q1']['rows']} rows"
+                )
+                print(
+                    f"    Total Q2: {results['q2']['batches']} batches, {results['q2']['rows']} rows"
+                )
 
-                print("\n[6] Closing session...")
+                print("\n[5] Closing session...")
                 # Session closes automatically via context manager
 
         print("\n" + "=" * 70)
