@@ -23,6 +23,7 @@ Requirements:
 """
 
 import asyncio
+import logging
 import os
 import signal
 import subprocess
@@ -31,6 +32,26 @@ import time
 from pathlib import Path
 
 import httpx
+
+
+class FlushingStreamHandler(logging.StreamHandler):
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+
+def setup_logging() -> logging.Logger:
+    handler = FlushingStreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+
+    logger = logging.getLogger("e2e_test")
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    logger.propagate = False
+    return logger
+
+
+log = setup_logging()
 
 DEADLOCK_API_BASE = "https://api.deadlock-api.com"
 DEMOFLIGHT_ADDR = "grpc://localhost:50051"
@@ -104,7 +125,7 @@ def start_demoflight_server() -> subprocess.Popen:
         output = proc.stdout.read() if proc.stdout else ""
         raise RuntimeError(f"demoflight failed to start: {output}")
 
-    print(f"[+] demoflight server started (PID {proc.pid})")
+    log.info("[+] demoflight server started (PID %d)", proc.pid)
     return proc
 
 
@@ -112,45 +133,52 @@ async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
     """Run the E2E test against a live broadcast using the demoflight client."""
     from demoflight import Client
 
-    print(f"\n{'=' * 70}")
-    print(f"E2E TEST: Match {match_id}")
-    print(f"{'=' * 70}")
-    print(f"Broadcast URL: {broadcast_url[:60]}...")
+    log.info("")
+    log.info("=" * 70)
+    log.info("E2E TEST: Match %d", match_id)
+    log.info("=" * 70)
+    log.info("Broadcast URL: %s...", broadcast_url[:60])
 
     try:
         async with Client(DEMOFLIGHT_ADDR) as client:
-            print("\n[1] Registering source...")
+            log.info("")
+            log.info("[1] Registering source...")
             async with await client.register_source(broadcast_url) as session:
                 tables = session.get_tables()
-                print(f"    Session token: {session.session_token[:50]}...")
-                print(f"    Tables discovered: {len(tables)}")
+                log.info("    Session token: %s...", session.session_token[:50])
+                log.info("    Tables discovered: %d", len(tables))
                 if tables:
-                    print(f"    Sample tables: {tables[:5]}")
+                    log.info("    Sample tables: %s", tables[:5])
 
-                print("\n[2] Checking table schemas...")
+                log.info("")
+                log.info("[2] Checking table schemas...")
                 target_table = "CCitadelPlayerPawn"
                 schema = session.get_schema(target_table)
                 if schema:
-                    print(f"    {target_table} schema: {len(schema)} fields")
-                    print(f"    First 5 fields: {[f.name for f in list(schema)[:5]]}")
+                    log.info("    %s schema: %d fields", target_table, len(schema))
+                    log.info(
+                        "    First 5 fields: %s", [f.name for f in list(schema)[:5]]
+                    )
                 else:
-                    print(
-                        f"    {target_table} schema not cached (will be available on query)"
+                    log.info(
+                        "    %s schema not cached (will be available on query)",
+                        target_table,
                     )
 
-                print("\n[3] Submitting queries...")
+                log.info("")
+                log.info("[3] Submitting queries...")
                 sql1 = "SELECT tick, entity_index, delta_type FROM CCitadelPlayerPawn LIMIT 100"
                 sql2 = "SELECT tick, entity_index FROM CNPC_Trooper LIMIT 50"
 
                 q1 = await session.add_query(sql1)
-                print(f"    Query 1 registered: {sql1[:50]}...")
+                log.info("    Query 1 registered: %s...", sql1[:50])
 
                 q2 = await session.add_query(sql2)
-                print(f"    Query 2 registered: {sql2[:50]}...")
+                log.info("    Query 2 registered: %s...", sql2[:50])
 
-                print("\n[4] Streaming results CONCURRENTLY...")
+                log.info("")
+                log.info("[4] Streaming results CONCURRENTLY...")
 
-                # Results dict to collect from concurrent tasks
                 results = {
                     "q1": {"batches": 0, "rows": 0, "schema": None},
                     "q2": {"batches": 0, "rows": 0},
@@ -160,18 +188,20 @@ async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
                     async for batch in q1:
                         if results["q1"]["schema"] is None:
                             results["q1"]["schema"] = batch.schema
-                            print(f"    Q1 Schema: {batch.schema}")
+                            log.info("    Q1 Schema: %s", batch.schema)
 
                         results["q1"]["batches"] += 1
                         results["q1"]["rows"] += batch.num_rows
 
                         if results["q1"]["batches"] <= 3:
-                            print(
-                                f"    Q1 Batch {results['q1']['batches']}: {batch.num_rows} rows"
+                            log.info(
+                                "    Q1 Batch %d: %d rows",
+                                results["q1"]["batches"],
+                                batch.num_rows,
                             )
 
                         if results["q1"]["batches"] >= 10:
-                            print(f"    Q1 ... (stopping after 10 batches)")
+                            log.info("    Q1 ... (stopping after 10 batches)")
                             break
 
                 async def drain_q2():
@@ -180,34 +210,42 @@ async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
                         results["q2"]["rows"] += batch.num_rows
 
                         if results["q2"]["batches"] <= 2:
-                            print(
-                                f"    Q2 Batch {results['q2']['batches']}: {batch.num_rows} rows"
+                            log.info(
+                                "    Q2 Batch %d: %d rows",
+                                results["q2"]["batches"],
+                                batch.num_rows,
                             )
 
                         if results["q2"]["batches"] >= 5:
-                            print(f"    Q2 ... (stopping after 5 batches)")
+                            log.info("    Q2 ... (stopping after 5 batches)")
                             break
 
-                # MUST consume concurrently to avoid deadlock
                 await asyncio.gather(drain_q1(), drain_q2())
 
-                print(
-                    f"\n    Total Q1: {results['q1']['batches']} batches, {results['q1']['rows']} rows"
+                log.info("")
+                log.info(
+                    "    Total Q1: %d batches, %d rows",
+                    results["q1"]["batches"],
+                    results["q1"]["rows"],
                 )
-                print(
-                    f"    Total Q2: {results['q2']['batches']} batches, {results['q2']['rows']} rows"
+                log.info(
+                    "    Total Q2: %d batches, %d rows",
+                    results["q2"]["batches"],
+                    results["q2"]["rows"],
                 )
 
-                print("\n[5] Closing session...")
-                # Session closes automatically via context manager
+                log.info("")
+                log.info("[5] Closing session...")
 
-        print("\n" + "=" * 70)
-        print("E2E TEST PASSED")
-        print("=" * 70)
+        log.info("")
+        log.info("=" * 70)
+        log.info("E2E TEST PASSED")
+        log.info("=" * 70)
         return True
 
     except Exception as e:
-        print(f"\nE2E TEST FAILED: {e}")
+        log.error("")
+        log.error("E2E TEST FAILED: %s", e)
         import traceback
 
         traceback.print_exc()
@@ -215,30 +253,32 @@ async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
 
 
 async def main():
-    print("=" * 70)
-    print("DEMOFLIGHT E2E TEST (using Python client)")
-    print("=" * 70)
+    log.info("=" * 70)
+    log.info("DEMOFLIGHT E2E TEST (using Python client)")
+    log.info("=" * 70)
 
     api_key = get_api_key()
     if api_key:
-        print("[+] Using Deadlock API key")
+        log.info("[+] Using Deadlock API key")
     else:
-        print("[!] No API key - rate limited to 10 req/30min")
+        log.info("[!] No API key - rate limited to 10 req/30min")
 
-    print("\n[*] Finding active match with broadcast...")
+    log.info("")
+    log.info("[*] Finding active match with broadcast...")
     headers = {"X-API-Key": api_key} if api_key else {}
 
     async with httpx.AsyncClient(headers=headers, timeout=30.0) as http_client:
         result = await get_fresh_match(http_client)
 
     if not result:
-        print("[!] No active matches found. Try again later.")
+        log.info("[!] No active matches found. Try again later.")
         sys.exit(1)
 
     match_id, broadcast_url = result
-    print(f"[+] Found match {match_id}")
+    log.info("[+] Found match %d", match_id)
 
-    print("\n[*] Starting demoflight server...")
+    log.info("")
+    log.info("[*] Starting demoflight server...")
     server_proc = start_demoflight_server()
 
     try:
@@ -250,7 +290,8 @@ async def main():
             sys.exit(1)
 
     finally:
-        print("\n[*] Stopping demoflight server...")
+        log.info("")
+        log.info("[*] Stopping demoflight server...")
         server_proc.send_signal(signal.SIGTERM)
         try:
             server_proc.wait(timeout=5)
@@ -260,11 +301,12 @@ async def main():
         if server_proc.stdout:
             output = server_proc.stdout.read()
             if output:
-                print("\n[*] Server logs:")
+                log.info("")
+                log.info("[*] Server logs:")
                 for line in output.strip().split("\n")[-20:]:
-                    print(f"    {line}")
+                    log.info("    %s", line)
 
-        print("[+] Server stopped")
+        log.info("[+] Server stopped")
 
 
 if __name__ == "__main__":
