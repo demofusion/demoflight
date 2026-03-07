@@ -3,7 +3,7 @@
 End-to-end test for demoflight Flight SQL server using the demoflight Python client.
 
 This script:
-1. Starts the demoflight server
+1. Starts the demoflight server (or connects to an existing one)
 2. Finds a live Deadlock broadcast via the API
 3. Uses the demoflight Python client to:
    - Register the source
@@ -11,15 +11,25 @@ This script:
    - Stream results
 
 Usage:
-    # From the demoflight/clients/python directory
-    cd /home/matt/projects/deadlock/demoflight/clients/python
+    # Run against local binary (default)
+    cd demoflight/clients/python
     uv run python ../../scripts/e2e_test.py
 
+    # Run against Docker container
+    docker run -d -p 50051:50051 -e DEMOFLIGHT_JWT_SECRET=test demoflight
+    DEMOFLIGHT_URL=grpc://localhost:50051 uv run python ../../scripts/e2e_test.py
+
+    # Run against remote server
+    DEMOFLIGHT_URL=grpc://demoflight.example.com:50051 uv run python ../../scripts/e2e_test.py
+
+Environment variables:
+    DEMOFLIGHT_URL      - Server URL (if set, skips starting local server)
+    DEADLOCK_API_KEY    - Deadlock API key (optional, for faster API access)
+
 Requirements:
-    - demoflight binary built (cargo build --release)
     - demoflight Python client installed (uv sync in clients/python)
     - httpx for API calls
-    - DEADLOCK_API_KEY env var (optional, for faster API access)
+    - If not using DEMOFLIGHT_URL: demoflight binary built (cargo build --release)
 """
 
 import asyncio
@@ -54,7 +64,7 @@ def setup_logging() -> logging.Logger:
 log = setup_logging()
 
 DEADLOCK_API_BASE = "https://api.deadlock-api.com"
-DEMOFLIGHT_ADDR = "grpc://localhost:50051"
+DEFAULT_DEMOFLIGHT_ADDR = "grpc://localhost:50051"
 
 DEMOFLIGHT_BIN = Path(__file__).parent.parent / "target" / "release" / "demoflight"
 if not DEMOFLIGHT_BIN.exists():
@@ -129,7 +139,7 @@ def start_demoflight_server() -> subprocess.Popen:
     return proc
 
 
-async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
+async def run_e2e_test(broadcast_url: str, match_id: int, server_addr: str) -> bool:
     """Run the E2E test against a live broadcast using the demoflight client."""
     from demoflight import Client
 
@@ -140,7 +150,7 @@ async def run_e2e_test(broadcast_url: str, match_id: int) -> bool:
     log.info("Broadcast URL: %s...", broadcast_url[:60])
 
     try:
-        async with Client(DEMOFLIGHT_ADDR) as client:
+        async with Client(server_addr) as client:
             log.info("")
             log.info("[1] Registering source...")
             async with await client.register_source(broadcast_url) as session:
@@ -257,6 +267,14 @@ async def main():
     log.info("DEMOFLIGHT E2E TEST (using Python client)")
     log.info("=" * 70)
 
+    external_server = os.environ.get("DEMOFLIGHT_URL")
+    server_addr = external_server or DEFAULT_DEMOFLIGHT_ADDR
+
+    if external_server:
+        log.info("[+] Using external server: %s", external_server)
+    else:
+        log.info("[*] Will start local server")
+
     api_key = get_api_key()
     if api_key:
         log.info("[+] Using Deadlock API key")
@@ -277,36 +295,38 @@ async def main():
     match_id, broadcast_url = result
     log.info("[+] Found match %d", match_id)
 
-    log.info("")
-    log.info("[*] Starting demoflight server...")
-    server_proc = start_demoflight_server()
-
-    try:
+    server_proc = None
+    if not external_server:
+        log.info("")
+        log.info("[*] Starting demoflight server...")
+        server_proc = start_demoflight_server()
         time.sleep(2)
 
-        success = await run_e2e_test(broadcast_url, match_id)
+    try:
+        success = await run_e2e_test(broadcast_url, match_id, server_addr)
 
         if not success:
             sys.exit(1)
 
     finally:
-        log.info("")
-        log.info("[*] Stopping demoflight server...")
-        server_proc.send_signal(signal.SIGTERM)
-        try:
-            server_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            server_proc.kill()
+        if server_proc:
+            log.info("")
+            log.info("[*] Stopping demoflight server...")
+            server_proc.send_signal(signal.SIGTERM)
+            try:
+                server_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
 
-        if server_proc.stdout:
-            output = server_proc.stdout.read()
-            if output:
-                log.info("")
-                log.info("[*] Server logs:")
-                for line in output.strip().split("\n")[-20:]:
-                    log.info("    %s", line)
+            if server_proc.stdout:
+                output = server_proc.stdout.read()
+                if output:
+                    log.info("")
+                    log.info("[*] Server logs:")
+                    for line in output.strip().split("\n")[-20:]:
+                        log.info("    %s", line)
 
-        log.info("[+] Server stopped")
+            log.info("[+] Server stopped")
 
 
 if __name__ == "__main__":

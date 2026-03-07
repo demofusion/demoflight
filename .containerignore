@@ -27,3 +27,6 @@ scripts/
 *.local
 .env
 .env.*
+
+# Local cargo config (dev patches)
+.cargo/
