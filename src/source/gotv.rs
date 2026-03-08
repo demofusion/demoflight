@@ -1,5 +1,5 @@
 use datafusion::arrow::record_batch::RecordBatch;
-use demofusion::gotv::QueryHandle;
+use demofusion::session::QueryHandle;
 use futures::StreamExt;
 
 use crate::error::DemoflightError;

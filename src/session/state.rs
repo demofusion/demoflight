@@ -6,7 +6,10 @@ use uuid::Uuid;
 
 use dashmap::DashMap;
 use datafusion::arrow::datatypes::Schema;
-use demofusion::gotv::{GotvError, QueryHandle, SpectateSession, StreamingStats};
+use demofusion::gotv::StreamingStats;
+use demofusion::session::{
+    QueryHandle, SessionError as DemofusionSessionError, StreamingSession as DemofusionSession,
+};
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::task::JoinHandle;
@@ -28,10 +31,10 @@ pub struct StreamingSession {
     pub table_schemas: HashMap<Arc<str>, TableSchema>,
     pub created_at: Instant,
 
-    spectate: Mutex<Option<SpectateSession>>,
+    demofusion_session: Mutex<Option<DemofusionSession>>,
     query_handles: DashMap<Uuid, QueryHandle>,
     cancel_token: OnceCell<CancellationToken>,
-    parser_handle: OnceCell<JoinHandle<std::result::Result<(), GotvError>>>,
+    parser_handle: OnceCell<JoinHandle<std::result::Result<(), DemofusionSessionError>>>,
     streaming_started_at: OnceCell<Instant>,
     streaming_stats: OnceCell<Arc<StreamingStats>>,
 
@@ -56,7 +59,7 @@ impl StreamingSession {
         id: Uuid,
         source: SourceInfo,
         table_schemas: Vec<TableSchema>,
-        spectate: SpectateSession,
+        demofusion_session: DemofusionSession,
     ) -> Self {
         let schema_map: HashMap<Arc<str>, TableSchema> = table_schemas
             .into_iter()
@@ -68,7 +71,7 @@ impl StreamingSession {
             source,
             table_schemas: schema_map,
             created_at: Instant::now(),
-            spectate: Mutex::new(Some(spectate)),
+            demofusion_session: Mutex::new(Some(demofusion_session)),
             query_handles: DashMap::new(),
             cancel_token: OnceCell::new(),
             parser_handle: OnceCell::new(),
@@ -192,15 +195,15 @@ impl StreamingSession {
     }
 
     pub async fn add_query(&self, sql: &str) -> Result<Uuid> {
-        let mut spectate_guard = self.spectate.lock().await;
+        let mut session_guard = self.demofusion_session.lock().await;
 
-        let spectate = spectate_guard
+        let session = session_guard
             .as_mut()
             .ok_or(DemoflightError::SessionLocked)?;
 
         let query_id = Uuid::new_v4();
 
-        let handle = spectate
+        let handle = session
             .add_query(sql)
             .await
             .map_err(|e| DemoflightError::SqlValidation(e.to_string()))?;
@@ -219,15 +222,15 @@ impl StreamingSession {
     }
 
     pub async fn ensure_streaming(&self) -> Result<()> {
-        let mut spectate_guard = self.spectate.lock().await;
+        let mut session_guard = self.demofusion_session.lock().await;
 
-        let Some(spectate) = spectate_guard.take() else {
+        let Some(mut demofusion_session) = session_guard.take() else {
             tracing::debug!("ensure_streaming: already streaming");
             return Ok(());
         };
 
         if self.query_handles.is_empty() {
-            *spectate_guard = Some(spectate);
+            *session_guard = Some(demofusion_session);
             return Err(DemoflightError::InvalidState {
                 expected: "at least one query".into(),
                 actual: "no queries registered".into(),
@@ -241,23 +244,19 @@ impl StreamingSession {
         );
 
         let cancel_token = CancellationToken::new();
+        demofusion_session = demofusion_session.with_cancel_token(cancel_token.clone());
 
-        let result = spectate
-            .start_with_stats(cancel_token.clone())
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to start streaming");
-                DemoflightError::GotvConnection(e.to_string())
-            })?;
+        let result = demofusion_session.start().map_err(|e| {
+            tracing::error!(error = %e, "Failed to start streaming");
+            DemoflightError::GotvConnection(e.to_string())
+        })?;
 
         tracing::info!(session_id = %self.id, "Parser task spawned");
 
         let _ = self.cancel_token.set(cancel_token);
         let _ = self.parser_handle.set(result.parser_handle);
         let _ = self.streaming_started_at.set(Instant::now());
-        if let Some(stats) = result.stats {
-            let _ = self.streaming_stats.set(stats);
-        }
+        let _ = self.streaming_stats.set(result.stats);
 
         Ok(())
     }
@@ -358,7 +357,7 @@ impl StreamingSession {
             source: SourceInfo::new("http://example.com"),
             table_schemas: schema_map,
             created_at: Instant::now(),
-            spectate: Mutex::new(None),
+            demofusion_session: Mutex::new(None),
             query_handles: DashMap::new(),
             cancel_token: OnceCell::new(),
             parser_handle: OnceCell::new(),

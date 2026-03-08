@@ -10,7 +10,7 @@ use arrow_flight::{
     SchemaResult, Ticket,
 };
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
-use demofusion::gotv::QueryHandle;
+use demofusion::session::QueryHandle;
 use futures::{Stream, StreamExt, TryStreamExt};
 use prost::Message;
 use tonic::{Request, Response, Status, Streaming};

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use arrow_flight::{IpcMessage, SchemaAsIpc};
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
-use demofusion::gotv::SpectateSession;
+use demofusion::gotv::GotvSource;
+use demofusion::session::{IntoStreamingSession, Schemas};
 use uuid::Uuid;
 
 use crate::error::{DemoflightError, Result};
@@ -20,16 +21,22 @@ pub async fn handle_register_source(
 ) -> Result<RegisterSourceResponse> {
     validate_source_url(&req.source_url, allowed_patterns)?;
 
-    let spectate = SpectateSession::connect(&req.source_url)
+    let source = GotvSource::connect(&req.source_url)
         .await
         .map_err(|e| DemoflightError::GotvConnection(e.to_string()))?;
 
-    let (table_infos, table_schemas) = extract_schemas(&spectate)?;
+    let (demofusion_session, schemas) = source
+        .into_session()
+        .await
+        .map_err(|e| DemoflightError::GotvConnection(e.to_string()))?;
+
+    let (table_infos, table_schemas) = extract_schemas(&schemas)?;
 
     let session_id = Uuid::new_v4();
-    let source = SourceInfo::new(req.source_url.clone());
+    let source_info = SourceInfo::new(req.source_url.clone());
 
-    let session = StreamingSession::new(session_id, source, table_schemas, spectate);
+    let session =
+        StreamingSession::new(session_id, source_info, table_schemas, demofusion_session);
     session_manager.insert(session)?;
 
     let token = jwt_handler.encode(SessionClaims {
@@ -47,20 +54,16 @@ pub async fn handle_register_source(
     })
 }
 
-fn extract_schemas(spectate: &SpectateSession) -> Result<(Vec<TableInfo>, Vec<TableSchema>)> {
+fn extract_schemas(schemas: &Schemas) -> Result<(Vec<TableInfo>, Vec<TableSchema>)> {
     let ipc_options = IpcWriteOptions::default();
     let mut table_infos = Vec::new();
     let mut table_schemas = Vec::new();
 
-    let mut entity_names: Vec<String> = spectate
-        .entity_names()
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut entity_names: Vec<&str> = schemas.keys().map(|s| s.as_ref()).collect();
     entity_names.sort();
 
     for name in entity_names {
-        if let Some(schema) = spectate.schema(&name) {
+        if let Some(schema) = schemas.get(name) {
             let schema_as_ipc = SchemaAsIpc::new(&schema.arrow_schema, &ipc_options);
             let ipc_message: IpcMessage =
                 schema_as_ipc
