@@ -1,3 +1,4 @@
+use demofusion::session::SessionError;
 use thiserror::Error;
 use tonic::Status;
 
@@ -48,8 +49,8 @@ pub enum DemoflightError {
     #[error("Protobuf decode error: {0}")]
     ProtoDecode(#[from] prost::DecodeError),
 
-    #[error("demofusion error: {0}")]
-    Demofusion(String),
+    #[error("Streaming session error: {0}")]
+    Session(#[from] SessionError),
 
     #[error("DataFusion error: {0}")]
     DataFusion(String),
@@ -81,8 +82,20 @@ impl From<DemoflightError> for Status {
 
             GotvConnection(_) => Status::unavailable(msg),
 
-            SchemaDiscovery(_) | QueryExecution(_) | Demofusion(_) | DataFusion(_)
-            | Internal(_) => Status::internal(msg),
+            Session(ref inner) => match inner {
+                SessionError::UnknownTable(_) | SessionError::Sql(_) => {
+                    Status::invalid_argument(msg)
+                }
+                SessionError::AlreadyStarted | SessionError::NoQueries => {
+                    Status::failed_precondition(msg)
+                }
+                SessionError::PipelineBreaker(_) => Status::invalid_argument(msg),
+                _ => Status::internal(msg),
+            },
+
+            SchemaDiscovery(_) | QueryExecution(_) | DataFusion(_) | Internal(_) => {
+                Status::internal(msg)
+            }
         }
     }
 }
