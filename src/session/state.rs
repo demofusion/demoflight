@@ -6,10 +6,10 @@ use uuid::Uuid;
 
 use dashmap::DashMap;
 use datafusion::arrow::datatypes::Schema;
+use demofusion::datafusion::streaming_stats::StreamingStats;
 use demofusion::session::{
     QueryHandle, SessionError, SessionResult, StreamingSession as DemofusionSession,
 };
-use demofusion::datafusion::streaming_stats::StreamingStats;
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::task::JoinHandle;
@@ -271,7 +271,10 @@ impl StreamingSession {
                 }
                 Err(e) => {
                     tracing::error!(session_id = %session_id, error = %e, "Parser task panicked");
-                    Err(SessionError::Internal(format!("Parser task panicked: {}", e)))
+                    Err(SessionError::Internal(format!(
+                        "Parser task panicked: {}",
+                        e
+                    )))
                 }
             }
         });

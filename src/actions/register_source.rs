@@ -41,8 +41,7 @@ pub async fn handle_register_source(
     let session_id = Uuid::new_v4();
     let source_info = SourceInfo::new(req.source_url.clone());
 
-    let session =
-        StreamingSession::new(session_id, source_info, table_schemas, demofusion_session);
+    let session = StreamingSession::new(session_id, source_info, table_schemas, demofusion_session);
     session_manager.insert(session)?;
 
     let token = jwt_handler.encode(SessionClaims {
