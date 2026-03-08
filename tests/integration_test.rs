@@ -20,6 +20,8 @@ async fn start_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
         max_sessions: 100,
         max_queries_per_session: 10,
         allowed_source_patterns: vec![".*".to_string()],
+        batch_size: 8192,
+        reject_pipeline_breakers: false,
     };
 
     let listener = tokio::net::TcpListener::bind("[::1]:0").await.unwrap();

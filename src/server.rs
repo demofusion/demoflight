@@ -338,6 +338,8 @@ impl FlightService for DemoflightService {
                     &self.jwt_handler,
                     &self.config.allowed_source_patterns,
                     self.config.max_session_duration_secs,
+                    self.config.batch_size,
+                    self.config.reject_pipeline_breakers,
                 )
                 .await
                 .map_err(Status::from)?;
