@@ -6,10 +6,10 @@ use uuid::Uuid;
 
 use dashmap::DashMap;
 use datafusion::arrow::datatypes::Schema;
-use demofusion::gotv::StreamingStats;
 use demofusion::session::{
-    QueryHandle, SessionError as DemofusionSessionError, StreamingSession as DemofusionSession,
+    QueryHandle, SessionError, SessionResult, StreamingSession as DemofusionSession,
 };
+use demofusion::datafusion::streaming_stats::StreamingStats;
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::task::JoinHandle;
@@ -34,7 +34,7 @@ pub struct StreamingSession {
     demofusion_session: Mutex<Option<DemofusionSession>>,
     query_handles: DashMap<Uuid, QueryHandle>,
     cancel_token: OnceCell<CancellationToken>,
-    parser_handle: OnceCell<JoinHandle<std::result::Result<(), DemofusionSessionError>>>,
+    parser_handle: OnceCell<JoinHandle<std::result::Result<(), SessionError>>>,
     streaming_started_at: OnceCell<Instant>,
     streaming_stats: OnceCell<Arc<StreamingStats>>,
 
@@ -246,17 +246,37 @@ impl StreamingSession {
         let cancel_token = CancellationToken::new();
         demofusion_session = demofusion_session.with_cancel_token(cancel_token.clone());
 
-        let result = demofusion_session.start().map_err(|e| {
-            tracing::error!(error = %e, "Failed to start streaming");
-            DemoflightError::GotvConnection(e.to_string())
-        })?;
+        let SessionResult {
+            parser_handle,
+            stats,
+        } = demofusion_session.start()?;
 
         tracing::info!(session_id = %self.id, "Parser task spawned");
 
         let _ = self.cancel_token.set(cancel_token);
-        let _ = self.parser_handle.set(result.parser_handle);
         let _ = self.streaming_started_at.set(Instant::now());
-        let _ = self.streaming_stats.set(result.stats);
+        let _ = self.streaming_stats.set(stats);
+
+        // Spawn a task to monitor the parser and log any errors
+        let session_id = self.id;
+        let monitored_handle = tokio::spawn(async move {
+            match parser_handle.await {
+                Ok(Ok(())) => {
+                    tracing::debug!(session_id = %session_id, "Parser completed successfully");
+                    Ok(())
+                }
+                Ok(Err(e)) => {
+                    tracing::error!(session_id = %session_id, error = %e, "Parser failed");
+                    Err(e)
+                }
+                Err(e) => {
+                    tracing::error!(session_id = %session_id, error = %e, "Parser task panicked");
+                    Err(SessionError::Internal(format!("Parser task panicked: {}", e)))
+                }
+            }
+        });
+
+        let _ = self.parser_handle.set(monitored_handle);
 
         Ok(())
     }
