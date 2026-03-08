@@ -91,3 +91,49 @@ impl DemoflightConfig {
             .extract()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use figment::providers::Serialized;
+
+    fn minimal_config() -> Figment {
+        Figment::new().merge(Serialized::defaults(serde_json::json!({
+            "jwt_secret": "test-secret"
+        })))
+    }
+
+    #[test]
+    fn batch_size_defaults_to_8192() {
+        let config: DemoflightConfig = minimal_config().extract().unwrap();
+        assert_eq!(config.batch_size, 8192);
+    }
+
+    #[test]
+    fn reject_pipeline_breakers_defaults_to_false() {
+        let config: DemoflightConfig = minimal_config().extract().unwrap();
+        assert!(!config.reject_pipeline_breakers);
+    }
+
+    #[test]
+    fn batch_size_can_be_overridden() {
+        let config: DemoflightConfig = minimal_config()
+            .merge(Serialized::defaults(serde_json::json!({
+                "batch_size": 256
+            })))
+            .extract()
+            .unwrap();
+        assert_eq!(config.batch_size, 256);
+    }
+
+    #[test]
+    fn reject_pipeline_breakers_can_be_enabled() {
+        let config: DemoflightConfig = minimal_config()
+            .merge(Serialized::defaults(serde_json::json!({
+                "reject_pipeline_breakers": true
+            })))
+            .extract()
+            .unwrap();
+        assert!(config.reject_pipeline_breakers);
+    }
+}
