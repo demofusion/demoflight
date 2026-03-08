@@ -34,6 +34,12 @@ pub struct DemoflightConfig {
 
     #[serde(default = "default_allowed_patterns")]
     pub allowed_source_patterns: Vec<String>,
+
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+
+    #[serde(default)]
+    pub reject_pipeline_breakers: bool,
 }
 
 fn default_listen_addr() -> String {
@@ -70,6 +76,10 @@ fn default_cleanup_interval() -> u64 {
 
 fn default_allowed_patterns() -> Vec<String> {
     vec![r"^https?://[^/]*\.steamcontent\.com/.*$".into()]
+}
+
+fn default_batch_size() -> usize {
+    8192
 }
 
 impl DemoflightConfig {

@@ -18,6 +18,8 @@ pub async fn handle_register_source(
     jwt_handler: &JwtHandler,
     allowed_patterns: &[String],
     session_timeout_secs: i64,
+    batch_size: usize,
+    reject_pipeline_breakers: bool,
 ) -> Result<RegisterSourceResponse> {
     validate_source_url(&req.source_url, allowed_patterns)?;
 
@@ -29,6 +31,10 @@ pub async fn handle_register_source(
         .into_session()
         .await
         .map_err(|e| DemoflightError::GotvConnection(e.to_string()))?;
+
+    let demofusion_session = demofusion_session
+        .with_batch_size(batch_size)
+        .with_reject_pipeline_breakers(reject_pipeline_breakers);
 
     let (table_infos, table_schemas) = extract_schemas(&schemas)?;
 
