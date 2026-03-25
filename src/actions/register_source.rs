@@ -3,7 +3,8 @@ use std::sync::Arc;
 use arrow_flight::{IpcMessage, SchemaAsIpc};
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
 use demofusion::gotv::GotvSource;
-use demofusion::session::{IntoStreamingSession, Schemas};
+use demofusion::session::IntoStreamingSession;
+use demofusion::StreamingSession as DemofusionSession;
 use uuid::Uuid;
 
 use crate::error::{DemoflightError, Result};
@@ -27,7 +28,7 @@ pub async fn handle_register_source(
         .await
         .map_err(|e| DemoflightError::GotvConnection(e.to_string()))?;
 
-    let (demofusion_session, schemas) = source
+    let demofusion_session = source
         .into_session()
         .await
         .map_err(|e| DemoflightError::GotvConnection(e.to_string()))?;
@@ -36,7 +37,7 @@ pub async fn handle_register_source(
         .with_batch_size(batch_size)
         .with_reject_pipeline_breakers(reject_pipeline_breakers);
 
-    let (table_infos, table_schemas) = extract_schemas(&schemas)?;
+    let (table_infos, table_schemas) = extract_schemas(&demofusion_session)?;
 
     let session_id = Uuid::new_v4();
     let source_info = SourceInfo::new(req.source_url.clone());
@@ -59,17 +60,18 @@ pub async fn handle_register_source(
     })
 }
 
-fn extract_schemas(schemas: &Schemas) -> Result<(Vec<TableInfo>, Vec<TableSchema>)> {
+fn extract_schemas(session: &DemofusionSession) -> Result<(Vec<TableInfo>, Vec<TableSchema>)> {
     let ipc_options = IpcWriteOptions::default();
     let mut table_infos = Vec::new();
     let mut table_schemas = Vec::new();
 
-    let mut entity_names: Vec<&str> = schemas.keys().map(|s| s.as_ref()).collect();
-    entity_names.sort();
+    // Get all table names (entities + events) and sort them
+    let mut table_names = session.all_table_names();
+    table_names.sort();
 
-    for name in entity_names {
-        if let Some(schema) = schemas.get(name) {
-            let schema_as_ipc = SchemaAsIpc::new(&schema.arrow_schema, &ipc_options);
+    for name in table_names {
+        if let Some(arrow_schema) = session.get_table_schema(name) {
+            let schema_as_ipc = SchemaAsIpc::new(&arrow_schema, &ipc_options);
             let ipc_message: IpcMessage =
                 schema_as_ipc
                     .try_into()
@@ -88,7 +90,7 @@ fn extract_schemas(schemas: &Schemas) -> Result<(Vec<TableInfo>, Vec<TableSchema
 
             table_schemas.push(TableSchema {
                 name,
-                arrow_schema: Arc::clone(&schema.arrow_schema),
+                arrow_schema,
                 ipc_bytes,
             });
         }
